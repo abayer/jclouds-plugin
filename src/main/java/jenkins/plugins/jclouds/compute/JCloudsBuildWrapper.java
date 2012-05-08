@@ -4,6 +4,7 @@ import hudson.Extension;
 import hudson.Launcher;
 import hudson.Util;
 import hudson.model.AbstractBuild;
+import hudson.model.AbstractDescribableImpl;
 import hudson.model.AbstractProject;
 import hudson.model.BuildListener;
 import hudson.model.Computer;
@@ -35,7 +36,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Callable;
 
 public class JCloudsBuildWrapper extends BuildWrapper {
-    public final List<InstancesToRun> instancesToRun;
+    public List<InstancesToRun> instancesToRun;
     public final int MAX_ATTEMPTS = 5;
 
     @DataBoundConstructor
@@ -43,7 +44,7 @@ public class JCloudsBuildWrapper extends BuildWrapper {
         this.instancesToRun = instancesToRun;
     }
     
-    public InstancesToRun getInstancesToRun(String cloudName, String templateName) {
+    public InstancesToRun getMatchingInstanceToRun(String cloudName, String templateName) {
         for (InstancesToRun i : instancesToRun) {
             if (i.cloudName.equals(cloudName) && i.templateName.equals(templateName)) {
                 return i;
@@ -173,7 +174,7 @@ public class JCloudsBuildWrapper extends BuildWrapper {
     public void terminateNodes(Map<String,Map<String,List<NodeMetadata>>> instances, PrintStream logger) {
         for (String cloudName : instances.keySet()) {
             for (String templateName : instances.get(cloudName).keySet()) {
-                InstancesToRun i = getInstancesToRun(cloudName, templateName);
+                InstancesToRun i = getMatchingInstanceToRun(cloudName, templateName);
                 for (NodeMetadata n : instances.get(cloudName).get(templateName)) {
                     terminateNode(cloudName, n.getId(), i.suspendOrTerminate, logger);
                 }
@@ -215,30 +216,6 @@ public class JCloudsBuildWrapper extends BuildWrapper {
         public boolean isApplicable(AbstractProject item) {
             return true;
         }
-
-        public FormValidation doCheckCount(@QueryParameter String value) {
-            return FormValidation.validatePositiveInteger(value);
-        }
-
-        public ListBoxModel doFillCloudNameItems() {
-            ListBoxModel m = new ListBoxModel();
-            for (String cloudName : JCloudsCloud.getCloudNames()) {
-                m.add(cloudName, cloudName);
-            }
-
-            return m;
-        }
-
-        public ListBoxModel doFillTemplateNameItems(@QueryParameter String cloudName) {
-            ListBoxModel m = new ListBoxModel();
-            JCloudsCloud c = JCloudsCloud.getByName(cloudName);
-            if (c != null) {
-                for (JCloudsSlaveTemplate t : c.getTemplates()) {
-                    m.add(String.format("%s in cloud %s", t.name, cloudName), t.name);
-                }
-            }
-            return m;
-        }
                      
     }
 
@@ -256,22 +233,6 @@ public class JCloudsBuildWrapper extends BuildWrapper {
             this.future = future;
         }
     }
-    
-    public static final class InstancesToRun {
-        public final String cloudName;
-        public final String templateName;
-        public final int count;
-        public final boolean suspendOrTerminate;
-        
-        @DataBoundConstructor
-        public InstancesToRun(String cloudName, String templateName, int count, boolean suspendOrTerminate) {
-            this.cloudName = Util.fixEmptyAndTrim(cloudName);
-            this.templateName = Util.fixEmptyAndTrim(templateName);
-            this.count = count;
-            this.suspendOrTerminate = suspendOrTerminate;
-        }        
-    }
-    
     
     
 }
