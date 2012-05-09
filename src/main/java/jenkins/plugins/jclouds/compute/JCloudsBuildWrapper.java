@@ -72,56 +72,59 @@ public class JCloudsBuildWrapper extends BuildWrapper {
                                                          Computer.threadPoolForRemoting.submit(new Callable<NodeMetadata>() {
                                                                  public NodeMetadata call() throws Exception {
                                                                      int attempts = 0;
-                                                                     NodeMetadata n = null;
                                                                      
-                                                                     while (attempts < MAX_ATTEMPTS && n == null) {
+                                                                     while (attempts < MAX_ATTEMPTS) {
                                                                          attempts++;
                                                                          try {
-                                                                             n = template.provision();
+                                                                             NodeMetadata n = template.provision();
+                                                                             if (n != null) {
+                                                                                 return n;
+                                                                             }
                                                                          } catch (RuntimeException e) {
                                                                              // Something to log the e.getCause() which should be a RunNodesException
-                                                                             n = null;
                                                                          }
                                                                      }
 
-                                                                     return n;
+                                                                     return null;
                                                                  }
                                                              })));
+                listener.getLogger().println("Queuing cloud instance: #" + i + " of " + instance.count + ", " + instance.cloudName + " " + instance.templateName);
             }
         }
 
         int failedLaunches = 0;
 
-        for (Iterator<PlannedInstance> itr = plannedInstances.iterator(); itr.hasNext();) {
-            PlannedInstance f = itr.next();
-
-            if (f.future.isDone()) {
-                try {
-                    Map<String,List<NodeMetadata>> cloudMap = spawnedInstances.get(f.cloudName);
-                    if (cloudMap==null) {
-                        spawnedInstances.put(f.cloudName, cloudMap = new HashMap<String,List<NodeMetadata>>());
-                    }
-                    List<NodeMetadata> templateList = cloudMap.get(f.templateName);
-                    if (templateList==null) {
-                        cloudMap.put(f.templateName, templateList = new ArrayList<NodeMetadata>());
-                    }
-
-                    NodeMetadata n = f.future.get();
-
-                    if (n != null) {
-                        templateList.add(n);
-                    } else {
+        while (plannedInstances.size() > 0) {
+            for (Iterator<PlannedInstance> itr = plannedInstances.iterator(); itr.hasNext();) {
+                PlannedInstance f = itr.next();
+                if (f.future.isDone()) {
+                    try {
+                        Map<String,List<NodeMetadata>> cloudMap = spawnedInstances.get(f.cloudName);
+                        if (cloudMap==null) {
+                            spawnedInstances.put(f.cloudName, cloudMap = new HashMap<String,List<NodeMetadata>>());
+                        }
+                        List<NodeMetadata> templateList = cloudMap.get(f.templateName);
+                        if (templateList==null) {
+                            cloudMap.put(f.templateName, templateList = new ArrayList<NodeMetadata>());
+                        }
+                        
+                        NodeMetadata n = f.future.get();
+                        
+                        if (n != null) {
+                            templateList.add(n);
+                        } else {
+                            failedLaunches++;
+                        }
+                    } catch (InterruptedException e) {
                         failedLaunches++;
+                        listener.error("Interruption while launching instance " + f.index + " of " + f.cloudName + "/" + f.templateName + ": " + e);
+                    } catch (ExecutionException e) {
+                        failedLaunches++;
+                        listener.error("Error while launching instance " + f.index + " of " + f.cloudName + "/" + f.templateName + ": " + e.getCause());
                     }
-                } catch (InterruptedException e) {
-                    failedLaunches++;
-                    listener.error("Interruption while launching instance " + f.index + " of " + f.cloudName + "/" + f.templateName + ": " + e);
-                } catch (ExecutionException e) {
-                    failedLaunches++;
-                    listener.error("Error while launching instance " + f.index + " of " + f.cloudName + "/" + f.templateName + ": " + e.getCause());
+                    
+                    itr.remove();
                 }
-
-                itr.remove();
             }
         }
 
